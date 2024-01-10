@@ -74,11 +74,11 @@ class BasicTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Please select either a single month or a start and end month", response.data.decode())
         
-    @patch('your_flask_app_file.pyo.plot', MagicMock())
+    @patch('appdb.pyo.plot', MagicMock())
     def test_create_plotly_graph(self):
         # Create a sample DataFrame for testing
         sample_df = pd.DataFrame({
-            'Timestamp': pd.date_range(start='2021-01-01', end='2021-01-02', freq='H'),
+            'Timestamp': pd.date_range(start='2021-01-01', periods=12, freq='H'),
             'Flow': [100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155],
             'Pressure': [10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 11.0, 11.1, 11.2]
         })

@@ -1,0 +1,7 @@
+Flask
+pandas
+numpy
+tensorflow
+scikit-learn
+plotly
+

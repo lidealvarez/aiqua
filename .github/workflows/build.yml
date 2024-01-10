@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install mysql-connector-python Flask pandas numpy tensorflow scikit-learn plotly
+        pip install mysql-connector-python Flask pandas numpy tensorflow scikit-learn plotly pytest
     # - name: Lint with flake8
     #   run: |
     #     # stop the build if there are Python syntax errors or undefined names

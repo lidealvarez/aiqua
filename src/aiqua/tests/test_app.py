@@ -33,16 +33,29 @@ class BasicTests(unittest.TestCase):
         self.assertIsInstance(data, list)
         
     def test_get_data_from_db_for_reductor(self):
-        # Known test data
-        start_date = '2021-01-01'
-        end_date = '2021-01-31'
-        reductor_id = 4  
+        with patch('appdb.get_data_from_db_for_reductor') as mock_get_data:
+            mock_get_data.return_value = pd.DataFrame({
+                'date': ['2021-01-01', '2021-01-02'],
+                'value': [123, 456]
+            })
 
-        # Call the function
-        result_df = get_data_from_db_for_reductor(start_date, end_date, reductor_id)
-        
-        # Check if the result is a DataFrame
-        self.assertIsInstance(result_df, pd.DataFrame)
+            # Known test data
+            start_date = '2021-01-01'
+            end_date = '2021-01-31'
+            reductor_id = 4  
+
+            # Import the function inside the context manager
+            from appdb import get_data_from_db_for_reductor
+
+            # Call the function
+            result_df = get_data_from_db_for_reductor(start_date, end_date, reductor_id)
+
+            # Check if the result is a DataFrame
+            self.assertIsInstance(result_df, pd.DataFrame)
+
+            # Check if DataFrame has 2 rows as mocked
+            self.assertEqual(len(result_df), 2)
+            self.assertTrue('date' in result_df.columns and 'value' in result_df.columns)
         
     @patch('appdb.get_data_from_db_for_reductor')  # Replace with the actual import path
     @patch('appdb.create_plotly_graph')  # Replace with the actual import path

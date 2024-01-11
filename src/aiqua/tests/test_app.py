@@ -19,18 +19,30 @@ class BasicTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'Reductor Data Analysis', response.data)  # Check for page content
 
-    def test_get_reductors(self):
+    @patch('mysql.connector.connect')
+    def test_get_reductors(self, mock_db_connect):
+        # Mock the cursor's fetchall to return mock data
+        mock_reductors_data = [{'reductorID': 1, 'name': 'Reductor1'}, {'reductorID': 2, 'name': 'Reductor2'}]
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = mock_reductors_data
+
+        # Set the return_value of the mock connection's cursor method to our mock_cursor
+        mock_connection = MagicMock()
+        mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_db_connect.return_value.__enter__.return_value = mock_connection
+
         # Make a GET request to the /get_reductors endpoint
         response = self.app.get('/get_reductors')
-        
+
         # Check if the response status code is 200 (OK)
         self.assertEqual(response.status_code, 200)
-        
+
         # Load the response data as JSON
         data = json.loads(response.data)
-        
-        # Check if the response is a list (as expected for reductors)
+
+        # Check if the response is a list and matches the mock data
         self.assertIsInstance(data, list)
+        self.assertEqual(data, mock_reductors_data)
         
     def test_get_data_from_db_for_reductor(self):
         with patch('appdb.get_data_from_db_for_reductor') as mock_get_data:

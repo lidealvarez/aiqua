@@ -53,6 +53,22 @@ def get_reductors():
             reductors = cursor.fetchall()
             return jsonify(reductors)
 
+def get_sensitivity_for_reductor(reductor_id):
+    try:
+        with mysql.connector.connect(**db_config) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT sensibility FROM reductor WHERE reductorID = %s", (reductor_id,))
+                row = cursor.fetchone()
+                if row and row[0] is not None:
+                    return row[0]
+                else:
+                    return None  # Sensitivity not found for reductor
+    except mysql.connector.Error as err:
+        print("Database error:", err)
+        return None
+
+
+
 @app.route('/', methods=['GET'])
 def index():
     plot_url = session.get('plot_url', 'default_value_if_not_set')
@@ -75,63 +91,80 @@ def load_data():
         return "Please select either a single month or a start and end month", 400
     print(start_date, end_date)
     # Fetch data from database for selected reductor
-    df = get_data_from_db_for_reductor(start_date, end_date, 4)
+    df = get_data_from_db_for_reductor(start_date, end_date, reductor_id)
     if df is not None:
         print(df.head())
         print(reductor_id)
     else:
         print("No data returned or an error occurred.")
     
+    # Fetch sensitivity for the selected reductor
+    sensitivity = get_sensitivity_for_reductor(reductor_id)
+    if sensitivity is None:
+        return "Sensitivity threshold not found for the selected reductor", 404
     # Process data with the machine learning model and create a plot
-    plot_url = create_plotly_graph(df, start_date, end_date)
+    plot_url = create_plotly_graph(df, start_date, end_date, sensitivity)
     session['plot_url'] = plot_url
     return redirect(url_for('index'))
 
-def create_plotly_graph(df, plot_start_date, plot_end_date):
-    
-    df.columns = [ 'Timestamp', 'Flow',  'Pressure']
-    
+def create_plotly_graph(df, plot_start_date, plot_end_date, sensitivity):
+    df.columns = ['Timestamp', 'Flow', 'Pressure']
     df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-    
     df.set_index('Timestamp', inplace=True)
     df_resampled = df.resample('5T').mean()
     df_resampled.dropna(inplace=True)
 
-    # Fit and transform the data as in process_data
+    # Fit and transform the data
     scaler = StandardScaler()
     pressure_scaled = scaler.fit_transform(df_resampled[['Pressure']])
     
+    # Generate predictions and calculate reconstruction error
     predictions = model.predict(pressure_scaled)
     mse = np.mean(np.power(pressure_scaled - predictions, 2), axis=1)
     df_resampled['Reconstruction_Error'] = mse
-    mse_threshold = np.quantile(df_resampled['Reconstruction_Error'], 0.9971)
+
+    # Use the dynamic sensitivity value for mse_threshold
+    mse_threshold = np.quantile(df_resampled['Reconstruction_Error'], sensitivity)
     df_resampled['Predicted_Anomalies'] = df_resampled['Reconstruction_Error'] > mse_threshold
+
+    # Define thresholds for severity levels
+    severity_thresholds = {
+        'mild': np.quantile(df_resampled[df_resampled['Predicted_Anomalies']]['Reconstruction_Error'], 0.75),
+        'moderate': np.quantile(df_resampled[df_resampled['Predicted_Anomalies']]['Reconstruction_Error'], 0.90),
+        'severe': np.quantile(df_resampled[df_resampled['Predicted_Anomalies']]['Reconstruction_Error'], 0.99)
+    }
+
+    # Function to classify anomaly severity
+    def classify_anomaly_severity(row):
+        if row['Predicted_Anomalies']:
+            if row['Reconstruction_Error'] <= severity_thresholds['mild']:
+                return 'Mild'
+            elif row['Reconstruction_Error'] <= severity_thresholds['moderate']:
+                return 'Moderate'
+            else:
+                return 'Severe'
+        else:
+            return 'Normal'
+
+    # Apply the classification
+    df_resampled['Anomaly_Severity'] = df_resampled.apply(classify_anomaly_severity, axis=1)
 
     # Filter data for the specified dates
     plot_data = df_resampled[plot_start_date:plot_end_date]
 
-    # Plotly traces
-    trace0 = go.Scatter(
-        x=plot_data.index,
-        y=plot_data['Pressure'],
-        mode='lines',
-        name='Pressure'
-    )
-    trace1 = go.Scatter(
-        x=plot_data[plot_data['Predicted_Anomalies']].index,
-        y=plot_data[plot_data['Predicted_Anomalies']]['Pressure'],
-        mode='markers',
-        name='Anomalies',
-        marker=dict(color='red', size=10)
-    )
+    # Create a Plotly figure
+    fig = go.Figure()
 
-    layout = go.Layout(
-        title='Pressure Readings with Detected Anomalies',
-        xaxis=dict(title='Timestamp'),
-        yaxis=dict(title='Scaled Pressure')
-    )
+    # Plot the normal pressure readings
+    fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Pressure'], mode='lines', name='Pressure'))
 
-    fig = go.Figure(data=[trace0, trace1], layout=layout)
+    # Separate the anomalies based on severity
+    for severity, color in zip(['Mild', 'Moderate', 'Severe'], ['yellow', 'orange', 'red']):
+        anomalies = plot_data[plot_data['Anomaly_Severity'] == severity]
+        fig.add_trace(go.Scatter(x=anomalies.index, y=anomalies['Pressure'], mode='markers', name=f'{severity} Anomalies', marker_color=color))
+
+    # Add title and labels
+    fig.update_layout(title='Pressure Readings with Detected Anomalies', xaxis_title='Timestamp', yaxis_title='Scaled Pressure')
 
     # Save the figure as an HTML file
     static_dir = os.path.join(app.root_path, 'static')
@@ -141,7 +174,6 @@ def create_plotly_graph(df, plot_start_date, plot_end_date):
     filename = f"plot_{uuid.uuid4()}.html"
     filepath = os.path.join(static_dir, filename)
     pyo.plot(fig, filename=filepath, auto_open=False)
-    print("filepath",filename)
     return filename
 
 if __name__ == '__main__':

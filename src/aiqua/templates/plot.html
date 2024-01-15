@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Plotly Graph</title>
+    <!-- Include Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        /* Set the body and html to full height */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* Set the plot container to full width and height */
+        #plotly-div {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="plotly-div"></div>
+
+<script>
+	var reductorId = {{ reductor_id | tojson }};
+    var isRequestInProgress = false;
+
+    function updatePlot() {
+        // Check if a request is already in progress
+        if (isRequestInProgress) {
+            return;
+        }
+
+        // Indicate that a request is now in progress
+        isRequestInProgress = true;
+
+        // Save current layout settings
+        var currentLayout = {};
+        var plotDiv = document.getElementById('plotly-div');
+        if (plotDiv.data && plotDiv.layout) {
+            currentLayout = plotDiv.layout;
+        }
+
+        // Fetch and update plot
+        fetch('/get_plot/' + reductorId)
+            .then(response => response.json())
+            .then(data => {
+                var plotData = JSON.parse(data.graphJSON);
+                // Update plot with saved layout (view settings)
+                Plotly.react('plotly-div', plotData.data, Object.assign({}, plotData.layout, currentLayout));
+                // Request finished, reset the flag
+                isRequestInProgress = false;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                // In case of error, also reset the flag
+                isRequestInProgress = false;
+            });
+    }
+
+    // Update the plot immediately on page load
+    updatePlot();
+
+    // Set interval for auto-refresh (e.g., 5000 milliseconds = 5 seconds)
+    setInterval(updatePlot, 5000);
+</script>
+
+</body>
+</html>

@@ -2,9 +2,9 @@ import unittest
 from unittest.mock import patch, MagicMock
 import os
 import json
-from appdb import app
+from appdbrealtime import app
 import pandas as pd
-from appdb import get_data_from_db_for_reductor, create_plotly_graph
+from appdbrealtime import get_data_from_db_for_reductor, create_plotly_graph_full
 
 class BasicTests(unittest.TestCase):
 
@@ -57,7 +57,7 @@ class BasicTests(unittest.TestCase):
             reductor_id = 4  
 
             # Import the function inside the context manager
-            from appdb import get_data_from_db_for_reductor
+            from appdbrealtime import get_data_from_db_for_reductor
 
             # Call the function
             result_df = get_data_from_db_for_reductor(start_date, end_date, reductor_id)

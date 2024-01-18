@@ -35,6 +35,9 @@
         // Indicate that a request is now in progress
         isRequestInProgress = true;
 
+        // Log the reductor ID for debugging
+        console.log("Fetching plot data for reductor ID:", reductorId);
+
         // Save current layout settings
         var currentLayout = {};
         var plotDiv = document.getElementById('plotly-div');
@@ -46,7 +49,11 @@
         fetch('/get_plot/' + reductorId)
             .then(response => response.json())
             .then(data => {
+                console.log("Received data:", data);  // Log the received data
+
                 var plotData = JSON.parse(data.graphJSON);
+                console.log("Parsed plot data:", plotData);  // Log the parsed plot data
+
                 // Update plot with saved layout (view settings)
                 Plotly.react('plotly-div', plotData.data, Object.assign({}, plotData.layout, currentLayout));
                 // Request finished, reset the flag

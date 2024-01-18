@@ -210,9 +210,9 @@ def get_data_from_db_for_reductor(reductor_id):
                     return df
                 else:
                     return pd.DataFrame()  # Return an empty DataFrame if no data is found
-    except mysql.connector.Error as err:
+    except Exception as err:  # Catching the database error
         print("Error in SQL operation:", err)
-        return None  # Return None to indicate an error
+        return None  # Return None in case of an error
     
 def fetch_reductor_name_and_town_id(reductor_id):
     try:

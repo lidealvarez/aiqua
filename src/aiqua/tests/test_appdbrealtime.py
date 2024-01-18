@@ -2,11 +2,81 @@ import unittest
 from unittest.mock import patch, MagicMock
 import requests
 import mysql.connector
-from appdbrealtime import load_reductor_assets, get_data_from_db_for_reductor_date, get_data_from_db_for_reductor, fetch_reductor_name_and_town_id, fetch_reductors, get_sensitivity_for_reductor, get_last_timestamp_from_db, send_alert_to_node_red, start_simulation_for_reductor
+import appdbrealtime
+from appdbrealtime import load_reductor_assets, get_data_from_db_for_reductor_date, get_data_from_db_for_reductor, fetch_reductor_name_and_town_id, fetch_reductors, get_sensitivity_for_reductor, get_last_timestamp_from_db, send_alert_to_node_red, start_simulation_for_reductor, update_cache, get_from_cache, cache, simulate_real_time_data, data_df  
 from appdbrealtime import app
 import json
 import pandas as pd
-from datetime import datetime
+import numpy as np
+from datetime import datetime, timedelta
+
+
+class TestCacheFunctions(unittest.TestCase):
+    
+    def test_update_cache(self):
+        # Mock the global cache variable
+        with patch.dict('appdbrealtime.cache', {}, clear=True):
+            update_cache("test_key", "test_value")
+            self.assertIn("test_key", cache)
+            self.assertEqual(cache["test_key"], "test_value")
+
+    def test_get_from_cache(self):
+        # Mock the global cache variable
+        with patch.dict('appdbrealtime.cache', {'another_key': 'another_value'}, clear=True):
+            value = get_from_cache("another_key")
+            self.assertEqual(value, "another_value")
+
+    def test_get_from_cache_nonexistent_key(self):
+        # Mock the global cache variable
+        with patch.dict('appdbrealtime.cache', {}, clear=True):
+            value = get_from_cache("nonexistent_key")
+            self.assertIsNone(value)
+
+class TestSimulateRealTimeData(unittest.TestCase):
+    def setUp(self):
+        # Setup a basic DataFrame for testing
+        self.data_df = pd.DataFrame({
+            'Timestamp': pd.date_range(start='2023-01-01', periods=5, freq='5T'),
+            'Flow': np.random.normal(10, 0.5, 5),
+            'Pressure': np.random.normal(5, 0.2, 5)
+        })
+
+    def test_simulate_with_non_empty_dataframe(self):
+        # Test the function with a non-empty DataFrame
+        new_data = simulate_real_time_data(self.data_df)
+        
+        # Assert that the function returns a dictionary
+        self.assertIsInstance(new_data, dict)
+        
+        # Assert that the new data has the expected keys
+        self.assertIn('Timestamp', new_data)
+        self.assertIn('Flow', new_data)
+        self.assertIn('Pressure', new_data)
+
+        # Assert that the timestamp is correctly incremented
+        expected_timestamp = self.data_df['Timestamp'].iloc[-1] + timedelta(minutes=5)
+        self.assertEqual(new_data['Timestamp'], expected_timestamp)
+
+    #@patch('pandas.Timestamp.now')
+    #def test_simulate_with_empty_dataframe(self, mock_now):
+        # Set a fixed current time
+        #fixed_now = pd.Timestamp('2024-01-18 17:25:00')
+        #mock_now.return_value = fixed_now
+
+        # Test the function with an empty DataFrame
+        #empty_df = pd.DataFrame()
+        #new_data = simulate_real_time_data(empty_df)
+
+        # Similar assertions as above
+        #self.assertIsInstance(new_data, dict)
+        #self.assertIn('Timestamp', new_data)
+        #self.assertIn('Flow', new_data)
+        #self.assertIn('Pressure', new_data)
+
+        # Since the DataFrame is empty, check if the timestamp is set to now rounded to 5 minutes
+        # plus 5 minutes to account for the increment in the function
+       # now_rounded_plus_5_minutes = fixed_now.floor('5T') + datetime.timedelta(minutes=5)
+       # self.assertEqual(new_data['Timestamp'], now_rounded_plus_5_minutes)
 
 class TestLoadReductorAssets(unittest.TestCase):
     @patch('appdbrealtime.joblib.load')

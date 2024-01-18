@@ -22,9 +22,9 @@ from collections import defaultdict
 app = Flask(__name__)
 app.secret_key = '6c061b2509dbc420431ad96a31042f4d'
 
-# Load the trained model
-#model = load_model('model_reductor6.h5')
-#scaler = joblib.load('scaler_reductor6.save')
+global data_df
+data_df = pd.DataFrame()
+
 
 # Database configuration
 db_config = {
@@ -53,12 +53,10 @@ global daily_anomaly_counts
 # Global variable to keep track of anomalies per day
 daily_anomaly_counts = defaultdict(int)
 
-
 import numpy as np
 
-def simulate_real_time_data(reductor_id, scaler, model):
+def simulate_real_time_data(data_df):
     global last_timestamp
-    
     # If last_timestamp is None, get the last timestamp from data_df
     if last_timestamp is None:
         if not data_df.empty:
@@ -105,9 +103,9 @@ def simulate_real_time_data(reductor_id, scaler, model):
 # Initialize a lock
 data_lock = threading.Lock()
 
-def update_data(reductor_id, scaler, model):
+def update_data(reductor_id):
     global data_df
-    new_data = simulate_real_time_data(reductor_id, scaler, model)
+    new_data = simulate_real_time_data(data_df)
         
     # Acquire lock before processing and updating data
     data_lock.acquire()
@@ -469,7 +467,7 @@ def start_simulation_for_reductor(reductor_id, scheduler):
         #update_cache(f'plot_data_{reductor_id}', (data_df, data_df['Timestamp'].min(), data_df['Timestamp'].max()))
 
         # Schedule the update_data job
-        scheduler.add_job(update_data, 'interval', seconds=5, args=[reductor_id, scaler, model])
+        scheduler.add_job(update_data, 'interval', seconds=5, args=[reductor_id])
 
     else:
         print(f"No historical data found for reductor {reductor_id}")

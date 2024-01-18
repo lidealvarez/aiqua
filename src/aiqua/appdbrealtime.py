@@ -479,7 +479,7 @@ if __name__ == '__main__':
 
 
     # Start with reductor 6
-    start_simulation_for_reductor(3)
+    start_simulation_for_reductor(3, scheduler)
 
     # Start the scheduler
     scheduler.start()

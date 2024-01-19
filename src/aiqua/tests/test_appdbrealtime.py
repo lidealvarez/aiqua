@@ -1,9 +1,9 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock
 import requests
 import mysql.connector
 import appdbrealtime
-from appdbrealtime import load_reductor_assets, get_data_from_db_for_reductor_date, get_data_from_db_for_reductor, fetch_reductor_name_and_town_id, fetch_reductors, get_sensitivity_for_reductor, get_last_timestamp_from_db, send_alert_to_node_red, start_simulation_for_reductor, update_cache, get_from_cache, cache, simulate_real_time_data, data_df  
+from appdbrealtime import load_reductor_assets, get_data_from_db_for_reductor_date, get_data_from_db_for_reductor, fetch_reductor_name_and_town_id, fetch_reductors, get_sensitivity_for_reductor, get_last_timestamp_from_db, send_alert_to_node_red, start_simulation_for_reductor, update_cache, get_from_cache, cache, simulate_real_time_data, update_data, start_simulation_for_reductor, scheduler
 from appdbrealtime import app
 import json
 import pandas as pd
@@ -36,14 +36,15 @@ class TestSimulateRealTimeData(unittest.TestCase):
     def setUp(self):
         # Setup a basic DataFrame for testing
         self.data_df = pd.DataFrame({
-            'Timestamp': pd.date_range(start='2023-01-01', periods=5, freq='5T'),
-            'Flow': np.random.normal(10, 0.5, 5),
-            'Pressure': np.random.normal(5, 0.2, 5)
+            'Timestamp': pd.date_range(start='2023-01-01', periods=3, freq='5T'),
+            'Flow': [10, 10.5, 9.8],
+            'Pressure': [5, 4.8, 5.2]
         })
 
     def test_simulate_with_non_empty_dataframe(self):
-        # Test the function with a non-empty DataFrame
-        new_data = simulate_real_time_data(self.data_df)
+        # Mock the global last_timestamp
+        with patch('appdbrealtime.last_timestamp', self.data_df['Timestamp'].iloc[-1]):
+            new_data = simulate_real_time_data(self.data_df)
         
         # Assert that the function returns a dictionary
         self.assertIsInstance(new_data, dict)
@@ -57,26 +58,66 @@ class TestSimulateRealTimeData(unittest.TestCase):
         expected_timestamp = self.data_df['Timestamp'].iloc[-1] + timedelta(minutes=5)
         self.assertEqual(new_data['Timestamp'], expected_timestamp)
 
-    #@patch('pandas.Timestamp.now')
-    #def test_simulate_with_empty_dataframe(self, mock_now):
-        # Set a fixed current time
-        #fixed_now = pd.Timestamp('2024-01-18 17:25:00')
-        #mock_now.return_value = fixed_now
+    @patch('pandas.Timestamp.now')
+    def test_simulate_with_empty_dataframe(self, mock_now):
+        # Set a fixed current time as a Pandas Timestamp
+        fixed_now = pd.Timestamp(datetime(2024, 1, 18, 17, 25, 0))
+        mock_now.return_value = fixed_now
 
-        # Test the function with an empty DataFrame
-        #empty_df = pd.DataFrame()
-        #new_data = simulate_real_time_data(empty_df)
+        # Reset last_timestamp before calling the function
+        appdbrealtime.last_timestamp = None
+
+        new_data = simulate_real_time_data(pd.DataFrame())
 
         # Similar assertions as above
-        #self.assertIsInstance(new_data, dict)
-        #self.assertIn('Timestamp', new_data)
-        #self.assertIn('Flow', new_data)
-        #self.assertIn('Pressure', new_data)
+        self.assertIsInstance(new_data, dict)
+        self.assertIn('Timestamp', new_data)
+        self.assertIn('Flow', new_data)
+        self.assertIn('Pressure', new_data)
 
-        # Since the DataFrame is empty, check if the timestamp is set to now rounded to 5 minutes
-        # plus 5 minutes to account for the increment in the function
-       # now_rounded_plus_5_minutes = fixed_now.floor('5T') + datetime.timedelta(minutes=5)
-       # self.assertEqual(new_data['Timestamp'], now_rounded_plus_5_minutes)
+        # The timestamp is the fixed_now time rounded down and incremented by 5 minutes
+        now_rounded_plus_5_minutes = fixed_now.floor('5T') + timedelta(minutes=5)
+        self.assertEqual(new_data['Timestamp'], now_rounded_plus_5_minutes)
+
+class TestUpdateData(unittest.TestCase):
+    def setUp(self):
+        # Setup a basic DataFrame for testing
+        appdbrealtime.data_df = pd.DataFrame({
+            'Timestamp': pd.date_range(start='2023-01-01', periods=3, freq='5T'),
+            'Flow': [10, 10.5, 9.8],
+            'Pressure': [5, 4.8, 5.2]
+        })
+        self.reductor_id = 1
+
+    @patch('appdbrealtime.simulate_real_time_data')
+    @patch('appdbrealtime.get_sensitivity_for_reductor')
+    @patch('appdbrealtime.update_cache')
+    def test_update_data(self, mock_update_cache, mock_get_sensitivity, mock_simulate_data):
+        simulated_data = {
+            'Timestamp': pd.Timestamp('2023-01-01 00:15:00'),
+            'Flow': 10.2,
+            'Pressure': 5.1
+        }
+        mock_simulate_data.return_value = simulated_data
+        mock_get_sensitivity.return_value = 0.8  # Example sensitivity value
+    
+        update_data(self.reductor_id)
+    
+        # Test that simulate_real_time_data was called
+        mock_simulate_data.assert_called_once()
+    
+        # Extract the arguments used in the last call to update_cache
+        called_args, _ = mock_update_cache.call_args
+        called_key, called_value = called_args
+
+        # Check that the correct key was used in update_cache
+        self.assertEqual(called_key, f'plot_data_{self.reductor_id}')
+
+        # Check the contents of the value tuple passed to update_cache
+        called_data_df, start_time, end_time, called_sensitivity = called_value
+        self.assertEqual(len(called_data_df), 4)  # Initially 3 + 1 new data point
+        self.assertTrue((called_data_df.iloc[-1] == pd.Series(simulated_data)).all())
+        self.assertEqual(called_sensitivity, 0.8)
 
 class TestLoadReductorAssets(unittest.TestCase):
     @patch('appdbrealtime.joblib.load')
@@ -529,6 +570,25 @@ class TestStartSimulationForReductor(unittest.TestCase):
         # Assertions
         mock_get_data_from_db.assert_called_with(1)
         mock_load_reductor_assets.assert_called_with(1)
-                                     
+
+        
+class TestAppDbRealTime(unittest.TestCase):
+    
+    def setUp(self):
+        app.config['DEBUG'] = True
+
+    @patch('appdbrealtime.start_simulation_for_reductor')
+    def test_start_scheduler(self, mock_scheduler):
+        # Call your function which includes scheduler.start()
+        start_simulation_for_reductor(6, mock_scheduler)
+        
+        # Assert that the start method of the mock_scheduler was called
+        mock_scheduler.start.assert_called_once()
+
+    def test_flask_app_config(self):
+        # Testing the debug configuration
+        self.assertTrue(app.debug)
+        self.assertTrue(app.config['DEBUG'])
+        
 if __name__ == '__main__':
     unittest.main()

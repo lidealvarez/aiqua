@@ -468,7 +468,8 @@ def start_simulation_for_reductor(reductor_id, scheduler):
 
         # Schedule the update_data job
         scheduler.add_job(update_data, 'interval', seconds=5, args=[reductor_id])
-
+        # Start the scheduler
+        scheduler.start()
     else:
         print(f"No historical data found for reductor {reductor_id}")
         
@@ -477,10 +478,8 @@ if __name__ == '__main__':
 
 
     # Start with reductor 6
-    start_simulation_for_reductor(3, scheduler)
+    start_simulation_for_reductor(6, scheduler)
 
-    # Start the scheduler
-    scheduler.start()
 
     # Run the Flask application
     app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)

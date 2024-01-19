@@ -1,3 +1,4 @@
+from io import StringIO
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 import requests
@@ -9,6 +10,7 @@ import json
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from sklearn.preprocessing import StandardScaler
 
 CACHE_KEY = 'appdbrealtime.cache'
 DB_ERROR_MESSAGE = "Database error"
@@ -584,5 +586,187 @@ class TestAppDbRealTime(unittest.TestCase):
         self.assertTrue(app.debug)
         self.assertTrue(app.config['DEBUG'])
         
+class TestPreprocessData(unittest.TestCase):
+
+    def setUp(self):
+        # Example data
+        data = """Timestamp,Flow,Pressure
+                  2024-01-01 00:00:00,10,100
+                  2024-01-01 00:02:00,15,105
+                  2024-01-01 00:06:00,20,110"""
+        self.df = pd.read_csv(StringIO(data), parse_dates=['Timestamp'])
+
+    def test_column_names(self):
+        processed_df = appdbrealtime.preprocess_data(self.df)
+        self.assertListEqual(processed_df.columns.tolist(), ['Flow', 'Pressure', 'Timestamp'])
+
+    def test_timestamp_conversion(self):
+        processed_df = appdbrealtime.preprocess_data(self.df)
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(processed_df['Timestamp']))
+
+    def test_resampling(self):
+        processed_df = appdbrealtime.preprocess_data(self.df)
+        expected_index_freq = '5T'  # 5 minutes
+        self.assertEqual(processed_df.index.freqstr, expected_index_freq)
+
+    def test_nan_handling(self):
+        # Add NaN value to test data
+        self.df.loc[3] = [pd.NaT, None, None]
+        processed_df = appdbrealtime.preprocess_data(self.df)
+        self.assertFalse(processed_df.isna().any().any())
+
+    def test_output_structure(self):
+        processed_df = appdbrealtime.preprocess_data(self.df)
+        self.assertIsInstance(processed_df, pd.DataFrame)
+
+class MockModel:
+    """ Mock model for testing purposes. """
+    def predict(self, X):
+        # For testing, return a simple transformation of X
+        return X * 0.5
+
+class TestScaleData(unittest.TestCase):
+
+    def setUp(self):
+        # Example data
+        data = {"Pressure": [100, 105, 110]}
+        self.df_resampled = pd.DataFrame(data)
+
+        # Set up scaler and model
+        self.scaler = StandardScaler()
+        self.scaler.fit(self.df_resampled[['Pressure']])
+        self.model = MockModel()  # Replace with a real model for actual testing
+
+    def test_scaling(self):
+        # Apply scaling
+        scaled_df = appdbrealtime.scale_data(self.df_resampled, self.scaler, self.model)
+
+        # Obtain the scaled 'Pressure' values
+        pressure_scaled = self.scaler.transform(self.df_resampled[['Pressure']])
+
+        # Test if the mean of the scaled 'Pressure' is close to 0
+        self.assertAlmostEqual(pressure_scaled.mean(), 0.0, places=7)
+
+        # Test if the standard deviation of the scaled 'Pressure' is close to 1
+        self.assertAlmostEqual(pressure_scaled.std(), 1.0, places=7)
+
+
+    def test_model_predictions(self):
+        scaled_df = appdbrealtime.scale_data(self.df_resampled, self.scaler, self.model)
+        # Test whether predictions column exists and has correct values
+        self.assertIn('Reconstruction_Error', scaled_df.columns)
+        self.assertTrue(all(scaled_df['Reconstruction_Error'] >= 0))  # Reconstruction error should be non-negative
+
+    def test_output_structure(self):
+        scaled_df = appdbrealtime.scale_data(self.df_resampled, self.scaler, self.model)
+        self.assertIsInstance(scaled_df, pd.DataFrame)
+        self.assertIn('Reconstruction_Error', scaled_df.columns)
+
+class TestDetectAnomalies(unittest.TestCase):
+
+    def setUp(self):
+        # Example data
+        data = {"Reconstruction_Error": np.random.rand(100)}
+        self.df_resampled = pd.DataFrame(data)
+
+    def test_mse_threshold_calculation(self):
+        sensitivity = 0.95
+        df_with_anomalies = appdbrealtime.detect_anomalies(self.df_resampled, sensitivity)
+        calculated_threshold = np.quantile(self.df_resampled['Reconstruction_Error'], sensitivity)
+        self.assertAlmostEqual(df_with_anomalies['Predicted_Anomalies'].sum(), 
+                               sum(self.df_resampled['Reconstruction_Error'] > calculated_threshold))
+
+    def test_anomaly_detection(self):
+        sensitivity = 0.95
+        df_with_anomalies = appdbrealtime.detect_anomalies(self.df_resampled, sensitivity)
+        self.assertIn('Predicted_Anomalies', df_with_anomalies.columns)
+        self.assertTrue(all(df_with_anomalies['Predicted_Anomalies'] == 
+                            (df_with_anomalies['Reconstruction_Error'] > np.quantile(df_with_anomalies['Reconstruction_Error'], sensitivity))))
+
+    def test_output_structure(self):
+        sensitivity = 0.95
+        df_with_anomalies = appdbrealtime.detect_anomalies(self.df_resampled, sensitivity)
+        self.assertIsInstance(df_with_anomalies, pd.DataFrame)
+        self.assertIn('Predicted_Anomalies', df_with_anomalies.columns)
+
+class TestTrackDailyAnomalies(unittest.TestCase):
+
+    def setUp(self):
+        # Example data
+        dates = pd.date_range('2024-01-01', periods=40, freq='H')
+        anomalies = np.random.randint(0, 2, size=40)  # Random 0s and 1s
+        self.df_resampled = pd.DataFrame({'Timestamp': dates, 'Predicted_Anomalies': anomalies})
+
+    def test_date_extraction(self):
+        daily_data = appdbrealtime.track_daily_anomalies(self.df_resampled)
+        self.assertTrue(all(isinstance(date, str) for date in daily_data.keys()))
+        self.assertTrue(all(datetime.strptime(date, '%Y-%m-%d') for date in daily_data.keys()))
+
+    def test_grouping_and_summation(self):
+        daily_data = appdbrealtime.track_daily_anomalies(self.df_resampled)
+        for date_str, anomaly_count in daily_data.items():
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            expected_count = self.df_resampled[self.df_resampled['Timestamp'].dt.date == date]['Predicted_Anomalies'].sum()
+            self.assertEqual(anomaly_count, expected_count)
+
+    def test_thresholding_anomalies(self):
+        daily_data = appdbrealtime.track_daily_anomalies(self.df_resampled)
+        self.assertTrue(all(count > 10 for count in daily_data.values()))
+
+    def test_output_structure(self):
+        daily_data = appdbrealtime.track_daily_anomalies(self.df_resampled)
+        self.assertIsInstance(daily_data, dict)
+
+class TestCreatePlotlyFigure(unittest.TestCase):
+
+    def setUp(self):
+        # Example data
+        dates = pd.date_range('2024-01-01', periods=10, freq='H')
+        pressure = np.random.rand(10)  # Random pressure values
+        severity = np.random.choice(['Mild', 'Moderate', 'Severe', None], size=10)  # Random severities
+        self.df_resampled = pd.DataFrame({'Timestamp': dates, 'Pressure': pressure, 'Anomaly_Severity': severity})
+        self.df_resampled.set_index('Timestamp', inplace=True)
+
+    def test_presence_of_elements(self):
+        fig = appdbrealtime.create_plotly_figure(self.df_resampled)
+        self.assertEqual(len(fig.data), 4)  # 1 for pressure line, 3 for anomalies
+        self.assertIsNotNone(fig.layout.title)
+        self.assertEqual(fig.layout.xaxis.title.text, 'Timestamp')
+        self.assertEqual(fig.layout.yaxis.title.text, 'Scaled Pressure')
+
+    def test_trace_data_correctness(self):
+        fig = appdbrealtime.create_plotly_figure(self.df_resampled)
+
+        # Convert DataFrame index to UNIX timestamps for comparison
+        expected_x_values = self.df_resampled.index.astype('int64') // 10**9
+        plotly_x_values = pd.to_datetime(fig.data[0].x).astype('int64') // 10**9
+        np.testing.assert_array_equal(plotly_x_values, expected_x_values)
+
+        # Compare y-values
+        np.testing.assert_array_equal(fig.data[0].y, self.df_resampled['Pressure'].to_numpy())
+
+
+
+
+
+    def test_color_and_style_settings(self):
+        fig = appdbrealtime.create_plotly_figure(self.df_resampled)
+        # Check colors for anomaly traces, assuming they are in order
+        expected_colors = ['yellow', 'orange', 'red']
+        for i, color in enumerate(expected_colors, start=1):
+            self.assertEqual(fig.data[i].marker.color, color)
+
+    def test_date_range_in_layout(self):
+        fig = appdbrealtime.create_plotly_figure(self.df_resampled)
+
+        if not self.df_resampled.empty:
+            max_date = self.df_resampled.index.max()
+            one_day_ago = max_date - pd.Timedelta(days=1)
+
+            # Convert fig.layout.xaxis.range to a list for comparison
+            xaxis_range = list(fig.layout.xaxis.range)
+            self.assertEqual(xaxis_range, [one_day_ago, max_date])
+
+                               
 if __name__ == '__main__':
     unittest.main()

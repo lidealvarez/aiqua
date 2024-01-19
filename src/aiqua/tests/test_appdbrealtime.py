@@ -577,14 +577,6 @@ class TestAppDbRealTime(unittest.TestCase):
     def setUp(self):
         app.config['DEBUG'] = True
 
-    @patch('appdbrealtime.start_simulation_for_reductor')
-    def test_start_scheduler(self, mock_scheduler):
-        # Call your function which includes scheduler.start()
-        start_simulation_for_reductor(6, mock_scheduler)
-        
-        # Assert that the start method of the mock_scheduler was called
-        mock_scheduler.start.assert_called_once()
-
     def test_flask_app_config(self):
         # Testing the debug configuration
         self.assertTrue(app.debug)

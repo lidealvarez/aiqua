@@ -621,9 +621,9 @@ class TestPreprocessData(unittest.TestCase):
 
 class MockModel:
     """ Mock model for testing purposes. """
-    def predict(self, X):
+    def predict(self, input_data):
         # For testing, return a simple transformation of X
-        return X * 0.5
+        return input_data * 0.5
 
 class TestScaleData(unittest.TestCase):
 
@@ -665,9 +665,13 @@ class TestScaleData(unittest.TestCase):
 class TestDetectAnomalies(unittest.TestCase):
 
     def setUp(self):
+        # Initialize the random number generator with a seed for reproducibility
+        rng = np.random.default_rng(seed=12345)  # You can choose any seed number
+
         # Example data
-        data = {"Reconstruction_Error": np.random.rand(100)}
-        self.df_resampled = pd.DataFrame(data)
+        # Use the generator's `random` method for generating random floats
+        reconstruction_error = rng.random(100)  # Random float values in the range [0.0, 1.0)
+        self.df_resampled = pd.DataFrame({"Reconstruction_Error": reconstruction_error})
 
     def test_mse_threshold_calculation(self):
         sensitivity = 0.95
@@ -692,9 +696,15 @@ class TestDetectAnomalies(unittest.TestCase):
 class TestTrackDailyAnomalies(unittest.TestCase):
 
     def setUp(self):
+        # Initialize the random number generator with a seed for reproducibility
+        rng = np.random.default_rng(seed=12345)  # You can choose any seed number
+
         # Example data
         dates = pd.date_range('2024-01-01', periods=40, freq='H')
-        anomalies = np.random.randint(0, 2, size=40)  # Random 0s and 1s
+
+        # Use the generator's `integers` method for random integers
+        anomalies = rng.integers(low=0, high=2, size=40)  # Random 0s and 1s
+
         self.df_resampled = pd.DataFrame({'Timestamp': dates, 'Predicted_Anomalies': anomalies})
 
     def test_date_extraction(self):

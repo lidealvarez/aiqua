@@ -720,10 +720,19 @@ class TestTrackDailyAnomalies(unittest.TestCase):
 class TestCreatePlotlyFigure(unittest.TestCase):
 
     def setUp(self):
+        # Seed for reproducibility
+        seed = 12345
+        rng = np.random.default_rng(np.random.SeedSequence(seed))
+
         # Example data
         dates = pd.date_range('2024-01-01', periods=10, freq='H')
-        pressure = np.random.rand(10)  # Random pressure values
-        severity = np.random.choice(['Mild', 'Moderate', 'Severe', None], size=10)  # Random severities
+
+        # Use the random number generator
+        pressure = rng.random(10)  # Random pressure values
+
+        # For random choice, you can use the 'choice' method of the generator
+        severity = rng.choice(['Mild', 'Moderate', 'Severe', None], size=10)
+
         self.df_resampled = pd.DataFrame({'Timestamp': dates, 'Pressure': pressure, 'Anomaly_Severity': severity})
         self.df_resampled.set_index('Timestamp', inplace=True)
 

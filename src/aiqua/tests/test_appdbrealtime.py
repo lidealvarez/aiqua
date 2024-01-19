@@ -10,25 +10,27 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
+CACHE_KEY = 'appdbrealtime.cache'
+DB_ERROR_MESSAGE = "Database error"
 
 class TestCacheFunctions(unittest.TestCase):
     
     def test_update_cache(self):
         # Mock the global cache variable
-        with patch.dict('appdbrealtime.cache', {}, clear=True):
+        with patch.dict(CACHE_KEY, {}, clear=True):
             update_cache("test_key", "test_value")
             self.assertIn("test_key", cache)
             self.assertEqual(cache["test_key"], "test_value")
 
     def test_get_from_cache(self):
         # Mock the global cache variable
-        with patch.dict('appdbrealtime.cache', {'another_key': 'another_value'}, clear=True):
+        with patch.dict(CACHE_KEY, {'another_key': 'another_value'}, clear=True):
             value = get_from_cache("another_key")
             self.assertEqual(value, "another_value")
 
     def test_get_from_cache_nonexistent_key(self):
         # Mock the global cache variable
-        with patch.dict('appdbrealtime.cache', {}, clear=True):
+        with patch.dict(CACHE_KEY, {}, clear=True):
             value = get_from_cache("nonexistent_key")
             self.assertIsNone(value)
 
@@ -114,7 +116,7 @@ class TestUpdateData(unittest.TestCase):
         self.assertEqual(called_key, f'plot_data_{self.reductor_id}')
 
         # Check the contents of the value tuple passed to update_cache
-        called_data_df, start_time, end_time, called_sensitivity = called_value
+        called_data_df, called_sensitivity = called_value
         self.assertEqual(len(called_data_df), 4)  # Initially 3 + 1 new data point
         self.assertTrue((called_data_df.iloc[-1] == pd.Series(simulated_data)).all())
         self.assertEqual(called_sensitivity, 0.8)
@@ -163,7 +165,7 @@ class FlaskRoutesTestCase(unittest.TestCase):
         mock_scaler = MagicMock()
         mock_model = MagicMock()
         mock_load_reductor_assets.return_value = (mock_scaler, mock_model)
-        mock_get_from_cache.return_value = ('plot_data', 'start_date', 'end_date', 'sensitivity')
+        mock_get_from_cache.return_value = ('plot_data', 'sensitivity')
         mock_create_plotly_graph_full.return_value = ('fig', 'anomaly_count')
 
         reductor_id = 1  # Example reductor ID
@@ -234,7 +236,7 @@ class TestGetDataFromDbForReductorDate(unittest.TestCase):
     @patch('appdbrealtime.mysql.connector.connect')
     def test_get_data_db_error(self, mock_connect):
         # Simulating a database error
-        mock_connect.side_effect = Exception("Database error")
+        mock_connect.side_effect = Exception(DB_ERROR_MESSAGE)
 
         result = get_data_from_db_for_reductor_date('2023-01-01', '2023-01-02', 1)
 
@@ -280,7 +282,7 @@ class TestGetDataFromDbForReductor(unittest.TestCase):
     @patch('appdbrealtime.mysql.connector.connect')
     def test_get_data_db_error(self, mock_connect):
         # Simulating a database error
-        mock_connect.side_effect = Exception("Database error")
+        mock_connect.side_effect = Exception(DB_ERROR_MESSAGE)
 
         result = get_data_from_db_for_reductor(1)
 
@@ -322,7 +324,7 @@ class TestFetchReductorNameAndTownId(unittest.TestCase):
     @patch('appdbrealtime.mysql.connector.connect')
     def test_fetch_reductor_name_and_town_id_db_error(self, mock_connect):
         # Simulating a database error
-        mock_connect.side_effect = mysql.connector.Error("Database error")
+        mock_connect.side_effect = mysql.connector.Error(DB_ERROR_MESSAGE)
 
         result = fetch_reductor_name_and_town_id(1)
 
@@ -354,7 +356,7 @@ class TestFetchReductors(unittest.TestCase):
     @patch('appdbrealtime.mysql.connector.connect')
     def test_fetch_reductors_db_error(self, mock_connect):
         # Simulating a database error
-        mock_connect.side_effect = mysql.connector.Error("Database error")
+        mock_connect.side_effect = mysql.connector.Error(DB_ERROR_MESSAGE)
 
         result = fetch_reductors()
 
@@ -427,7 +429,7 @@ class TestGetSensitivityForReductor(unittest.TestCase):
     @patch('appdbrealtime.mysql.connector.connect')
     def test_get_sensitivity_db_error(self, mock_connect):
         # Simulating a database error
-        mock_connect.side_effect = mysql.connector.Error("Database error")
+        mock_connect.side_effect = mysql.connector.Error(DB_ERROR_MESSAGE)
 
         result = get_sensitivity_for_reductor(1)
 
@@ -468,7 +470,7 @@ class TestGetLastTimestampFromDb(unittest.TestCase):
     @patch('appdbrealtime.mysql.connector.connect')
     def test_get_last_timestamp_db_error(self, mock_connect):
         # Simulating a database error
-        mock_connect.side_effect = mysql.connector.Error("Database error")
+        mock_connect.side_effect = mysql.connector.Error(DB_ERROR_MESSAGE)
 
         result = get_last_timestamp_from_db(1)
 

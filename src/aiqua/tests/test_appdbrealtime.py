@@ -877,6 +877,88 @@ class TestCreatePlotlyFigure(unittest.TestCase):
             self.assertEqual(xaxis_range, [one_day_ago, max_date])
 
 
-                              
+class TestGetReductorDetails(unittest.TestCase):
+
+    @patch('appdbrealtime.fetch_reductor_name_and_town_id')
+    def test_get_reductor_details(self, mock_fetch):
+        # Setup mock return values
+        mock_fetch.return_value = ("ReductorName", "TownID")
+
+        # Call the function with a test reductor_id
+        reductor_id = 1  
+        result = appdbrealtime.get_reductor_details(reductor_id)
+
+        # Check that fetch_reductor_name_and_town_id was called correctly
+        mock_fetch.assert_called_once_with(reductor_id)
+
+        # Check that the result is as expected
+        self.assertEqual(result, ("ReductorName", "TownID"))
+
+class TestCheckAndSendAlerts(unittest.TestCase):
+
+    @patch('appdbrealtime.get_reductor_details')
+    @patch('appdbrealtime.send_alert_to_node_red')
+    def test_check_and_send_alerts(self, mock_send_alert, mock_get_details):
+        # Setup mock return values
+        mock_get_details.return_value = ("ReductorName", "TownID")
+        
+        # Create a mock dataframe with predicted anomalies
+        df_resampled = pd.DataFrame({
+            'Timestamp': [pd.Timestamp('2021-01-01 00:00:00'), pd.Timestamp('2021-01-01 00:05:00')],
+            'Pressure': [1.0, 1.5],
+            'Predicted_Anomalies': [False, True],
+            'Anomaly_Severity': ['Normal', 'Moderate']
+        })
+
+        # Assume last_alert_timestamp is None initially
+        appdbrealtime.last_alert_timestamp = None
+
+        reductor_id = 1  # example reductor_id
+        last_alert_timestamp = appdbrealtime.check_and_send_alerts(df_resampled, reductor_id)
+
+        # Verify if get_reductor_details was called
+        mock_get_details.assert_called_once_with(reductor_id)
+
+        # Verify if send_alert_to_node_red was called for the new anomaly
+        self.assertEqual(mock_send_alert.call_count, 1)
+
+        # Check the last_alert_timestamp is updated correctly
+        self.assertEqual(last_alert_timestamp, pd.Timestamp('2021-01-01 00:05:00'))
+
+class TestCreatePlotlyGraphFull(unittest.TestCase):
+
+    @patch('appdbrealtime.preprocess_data')
+    @patch('appdbrealtime.scale_data')
+    @patch('appdbrealtime.detect_anomalies')
+    @patch('appdbrealtime.check_and_send_alerts')
+    @patch('appdbrealtime.create_plotly_figure')
+    def test_create_plotly_graph_full(self, mock_create_figure, mock_check_alerts, mock_detect_anomalies, mock_scale_data, mock_preprocess_data):
+        # Setup DataFrame and mock return values
+        mock_df = pd.DataFrame({
+            'Timestamp': pd.date_range(start='2021-01-01', periods=5, freq='5T'),
+            'Pressure': np.random.rand(5),
+            'Predicted_Anomalies': [False, True, False, True, False],
+            'Reconstruction_Error': np.random.rand(5)
+        })
+        mock_preprocess_data.return_value = mock_df
+        mock_scale_data.return_value = mock_df
+        mock_detect_anomalies.return_value = mock_df
+        mock_check_alerts.return_value = pd.Timestamp('2021-01-01 00:20:00')
+
+        mock_figure = MagicMock()
+        mock_create_figure.return_value = mock_figure
+
+        # Call the function
+        fig, anomaly_count = appdbrealtime.create_plotly_graph_full(mock_df, 0.95, None, None)
+
+        # Assertions
+        mock_preprocess_data.assert_called_once_with(mock_df)
+        mock_scale_data.assert_called_once()
+        mock_detect_anomalies.assert_called_once()
+        mock_check_alerts.assert_called_once()
+        mock_create_figure.assert_called_once_with(mock_df)
+        self.assertEqual(anomaly_count, 2)
+        self.assertEqual(fig, mock_figure)
+                                                
 if __name__ == '__main__':
     unittest.main()

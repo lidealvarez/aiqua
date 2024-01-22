@@ -696,8 +696,11 @@ class TestPreprocessData(unittest.TestCase):
 
     def test_resampling(self):
         processed_df = appdbrealtime.preprocess_data(self.df)
-        expected_index_freq = '5T'  # 5 minutes
-        self.assertEqual(processed_df.index.freqstr, expected_index_freq)
+        expected_freq = pd.tseries.frequencies.to_offset('5T')  # Convert to a frequency offset object
+        actual_freq = pd.tseries.frequencies.to_offset(processed_df.index.freqstr)  # Convert actual freqstr to frequency offset object
+
+        self.assertEqual(actual_freq, expected_freq)
+
 
     def test_nan_handling(self):
         # Add NaN value to test data

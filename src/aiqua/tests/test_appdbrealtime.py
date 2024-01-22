@@ -631,6 +631,50 @@ class TestAppDbRealTime(unittest.TestCase):
         # Testing the debug configuration
         self.assertTrue(app.debug)
         self.assertTrue(app.config['DEBUG'])
+
+
+class FlaskNodeRedTestCase(unittest.TestCase):
+    def setUp(self):
+        self.app = app
+        self.app.testing = True
+        self.client = self.app.test_client()
+
+    @patch('appdbrealtime.start_simulation_for_reductor')
+    def test_start_simulation_success(self, mock_start_simulation):
+        # Mock start_simulation_for_reductor to not perform any action
+        mock_start_simulation.return_value = None
+
+        # Make a POST request to the route and test for success response
+        reductor_id = 1  # Example reductor ID
+        response = self.client.post(f'/node_red/start_simulation/{reductor_id}')
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.get_data(as_text=True))
+        self.assertEqual(data['status'], 'success')
+        self.assertIn(f'Simulation started for reductor {reductor_id}', data['message'])
+
+    @patch('appdbrealtime.start_simulation_for_reductor')
+    def test_start_simulation_failure(self, mock_start_simulation):
+        # Mock start_simulation_for_reductor to raise an exception
+        mock_start_simulation.side_effect = Exception('Test error')
+
+        # Make a POST request to the route and test for error response
+        reductor_id = 1  # Example reductor ID
+        response = self.client.post(f'/node_red/start_simulation/{reductor_id}')
+        self.assertEqual(response.status_code, 200)  # assuming your route still returns HTTP 200 even in case of internal errors
+        data = json.loads(response.get_data(as_text=True))
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('Test error', data['message'])
+
+                   
+class TestAppDbRealTime(unittest.TestCase):
+    
+    def setUp(self):
+        app.config['DEBUG'] = True
+
+    def test_flask_app_config(self):
+        # Testing the debug configuration
+        self.assertTrue(app.debug)
+        self.assertTrue(app.config['DEBUG'])
         
 class TestPreprocessData(unittest.TestCase):
 
@@ -811,9 +855,6 @@ class TestCreatePlotlyFigure(unittest.TestCase):
         np.testing.assert_array_equal(fig.data[0].y, self.df_resampled['Pressure'].to_numpy())
 
 
-
-
-
     def test_color_and_style_settings(self):
         fig = appdbrealtime.create_plotly_figure(self.df_resampled)
         # Check colors for anomaly traces, assuming they are in order
@@ -832,6 +873,7 @@ class TestCreatePlotlyFigure(unittest.TestCase):
             xaxis_range = list(fig.layout.xaxis.range)
             self.assertEqual(xaxis_range, [one_day_ago, max_date])
 
-                               
+
+                              
 if __name__ == '__main__':
     unittest.main()

@@ -416,37 +416,64 @@ def create_plotly_graph_full(df, sensitivity, scaler, model):
 
 
 
-# Function to start data simulation for a reductor
+current_simulation_reductor_id = None
+
 def start_simulation_for_reductor(reductor_id, scheduler):
     global data_df
-    global last_alert_timestamp
+    global last_timestamp
+    global current_simulation_reductor_id
+
+    # Stop the current simulation if it's for a different reductor
+    if current_simulation_reductor_id is not None and current_simulation_reductor_id != reductor_id:
+        scheduler.remove_job(f'update_data_job_{current_simulation_reductor_id}')
+        print(f"Stopped simulation for reductor {current_simulation_reductor_id}")
+
+    current_simulation_reductor_id = reductor_id
+
+    # Clear the data for the previous reductor
+    data_df = pd.DataFrame()
+    last_timestamp = None
+    
+    # Load historical data for the new reductor
     data_df = get_data_from_db_for_reductor(reductor_id)
     if not data_df.empty:
         print(f"Loaded historical data for reductor {reductor_id}")
-        last_alert_timestamp = get_last_timestamp_from_db(reductor_id)
-        print(f"Last timestamp: {last_alert_timestamp}")
+        last_timestamp = get_last_timestamp_from_db(reductor_id)
+        print(f"Last timestamp: {last_timestamp}")
+        
         try:
             scaler, model = load_reductor_assets(reductor_id)
         except FileNotFoundError:
             print(f"Scaler or model file not found for reductor {reductor_id}")
             return
-        create_plotly_graph_full(data_df, get_sensitivity_for_reductor(reductor_id), scaler, model)
-        # Cache the initial data
-        #update_cache(f'plot_data_{reductor_id}', (data_df, data_df['Timestamp'].min(), data_df['Timestamp'].max()))
 
-        # Schedule the update_data job
-        scheduler.add_job(update_data, 'interval', seconds=5, args=[reductor_id])
-        # Start the scheduler
-        scheduler.start()
+        create_plotly_graph_full(data_df, get_sensitivity_for_reductor(reductor_id), scaler, model)
+
+        # Update the job in the scheduler for the new reductor
+        job_id = f'update_data_job_{reductor_id}'
+        if job_id not in [job.id for job in scheduler.get_jobs()]:
+            scheduler.add_job(update_data, 'interval', seconds=5, id=job_id, args=[reductor_id])
+            print(f"Started simulation for reductor {reductor_id}")
     else:
         print(f"No historical data found for reductor {reductor_id}")
+
+        
+@app.route('/node_red/start_simulation/<int:reductor_id>', methods=['POST'])
+def start_simulation_from_node_red(reductor_id):
+    try:
+        start_simulation_for_reductor(reductor_id, scheduler)
+        return jsonify({"status": "success", "message": f"Simulation started for reductor {reductor_id}"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
         
 if __name__ == '__main__':
 
 
-
+    scheduler = BackgroundScheduler()
+    scheduler.start()
     # Start with reductor 6
-    start_simulation_for_reductor(6, scheduler)
+    #start_simulation_for_reductor(3, scheduler)
 
 
     # Run the Flask application

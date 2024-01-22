@@ -522,7 +522,8 @@ class TestStartSimulationForReductor(unittest.TestCase):
     @patch('appdbrealtime.load_reductor_assets')
     @patch('appdbrealtime.create_plotly_graph_full')
     @patch('appdbrealtime.scheduler.add_job')
-    def test_start_simulation_success(self, mock_add_job, mock_create_plotly_graph, mock_load_reductor_assets, mock_get_last_timestamp, mock_get_data_from_db):
+    @patch('appdbrealtime.scheduler.remove_job')
+    def test_start_simulation_success(self, mock_remove_job, mock_add_job, mock_create_plotly_graph, mock_load_reductor_assets, mock_get_last_timestamp, mock_get_data_from_db):
         # Mocking successful data retrieval and asset loading
         mock_get_data_from_db.return_value = MagicMock(empty=False)
         mock_get_last_timestamp.return_value = '2023-01-01 00:00:00'
@@ -531,6 +532,11 @@ class TestStartSimulationForReductor(unittest.TestCase):
         # Create a mock scheduler
         mock_scheduler = MagicMock()
         mock_scheduler.add_job = mock_add_job  # Assign the add_job mock to the mock_scheduler
+        mock_scheduler.remove_job = mock_remove_job  # Assign the remove_job mock to the mock_scheduler
+
+        # Resetting global variables
+        appdbrealtime.current_simulation_reductor_id = None
+        appdbrealtime.last_timestamp = None
 
         # Test the function
         start_simulation_for_reductor(1, mock_scheduler)
@@ -542,8 +548,7 @@ class TestStartSimulationForReductor(unittest.TestCase):
         mock_create_plotly_graph.assert_called()
 
         # Check if add_job was called
-        mock_add_job.assert_called()  # If exact arguments are not important
-
+        mock_add_job.assert_called()
 
     @patch('appdbrealtime.get_data_from_db_for_reductor')
     def test_start_simulation_no_data(self, mock_get_data_from_db):
@@ -552,6 +557,10 @@ class TestStartSimulationForReductor(unittest.TestCase):
 
         # Create a mock scheduler
         mock_scheduler = MagicMock()
+
+        # Resetting global variables
+        appdbrealtime.current_simulation_reductor_id = None
+        appdbrealtime.last_timestamp = None
 
         start_simulation_for_reductor(1, mock_scheduler)
 
@@ -567,13 +576,50 @@ class TestStartSimulationForReductor(unittest.TestCase):
         # Create a mock scheduler
         mock_scheduler = MagicMock()
 
+        # Resetting global variables
+        appdbrealtime.current_simulation_reductor_id = None
+        appdbrealtime.last_timestamp = None
+
         start_simulation_for_reductor(1, mock_scheduler)
 
         # Assertions
         mock_get_data_from_db.assert_called_with(1)
         mock_load_reductor_assets.assert_called_with(1)
 
-        
+
+class FlaskNodeRedTestCase(unittest.TestCase):
+    def setUp(self):
+        self.app = app
+        self.app.testing = True
+        self.client = self.app.test_client()
+
+    @patch('appdbrealtime.start_simulation_for_reductor')
+    def test_start_simulation_success(self, mock_start_simulation):
+        # Mock start_simulation_for_reductor to not perform any action
+        mock_start_simulation.return_value = None
+
+        # Make a POST request to the route and test for success response
+        reductor_id = 1  # Example reductor ID
+        response = self.client.post(f'/node_red/start_simulation/{reductor_id}')
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.get_data(as_text=True))
+        self.assertEqual(data['status'], 'success')
+        self.assertIn(f'Simulation started for reductor {reductor_id}', data['message'])
+
+    @patch('appdbrealtime.start_simulation_for_reductor')
+    def test_start_simulation_failure(self, mock_start_simulation):
+        # Mock start_simulation_for_reductor to raise an exception
+        mock_start_simulation.side_effect = Exception('Test error')
+
+        # Make a POST request to the route and test for error response
+        reductor_id = 1  # Example reductor ID
+        response = self.client.post(f'/node_red/start_simulation/{reductor_id}')
+        self.assertEqual(response.status_code, 200)  # assuming your route still returns HTTP 200 even in case of internal errors
+        data = json.loads(response.get_data(as_text=True))
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('Test error', data['message'])
+
+                   
 class TestAppDbRealTime(unittest.TestCase):
     
     def setUp(self):

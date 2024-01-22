@@ -1,4 +1,5 @@
 import datetime
+from numpy.random import Generator, MT19937
 import joblib
 import mysql.connector
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for
@@ -19,12 +20,15 @@ import threading
 import requests
 from collections import defaultdict
 
+
 app = Flask(__name__)
 app.secret_key = '6c061b2509dbc420431ad96a31042f4d'
 
-# Load the trained model
-#model = load_model('model_reductor6.h5')
-#scaler = joblib.load('scaler_reductor6.save')
+global data_df
+data_df = pd.DataFrame()
+
+# Define a constant for the error message
+SQL_ERROR_MESSAGE = "Error in SQL operation:"
 
 # Database configuration
 db_config = {
@@ -53,12 +57,15 @@ global daily_anomaly_counts
 # Global variable to keep track of anomalies per day
 daily_anomaly_counts = defaultdict(int)
 
-
 import numpy as np
 
-def simulate_real_time_data(reductor_id, scaler, model):
+# Create a random number generator using MT19937 algorithm
+# Set the seed for reproducible results
+seed_value = 42
+rng = Generator(MT19937(seed_value))
+
+def simulate_real_time_data(data_df):
     global last_timestamp
-    
     # If last_timestamp is None, get the last timestamp from data_df
     if last_timestamp is None:
         if not data_df.empty:
@@ -68,7 +75,7 @@ def simulate_real_time_data(reductor_id, scaler, model):
             last_timestamp = pd.Timestamp.now().floor('5T')  # Round down to nearest 5 minutes
 
     # Increment timestamp by 5 minutes
-    last_timestamp += datetime.timedelta(minutes=5)
+    last_timestamp += pd.Timedelta(minutes=5)
 
     # Convert 'Pressure' to numeric type for calculations
     if not data_df.empty:
@@ -88,14 +95,14 @@ def simulate_real_time_data(reductor_id, scaler, model):
     anomaly_probability = 0.10  # 10%
 
     # Determine if this data point is an anomaly
-    if random.random() < anomaly_probability:
-        pressure = np.random.normal(anomaly_pressure_mean, anomaly_pressure_std_dev)
+    if rng.random() < anomaly_probability:
+        pressure = rng.normal(anomaly_pressure_mean, anomaly_pressure_std_dev)
     else:
-        pressure = np.random.normal(normal_pressure_mean, normal_pressure_std_dev)
+        pressure = rng.normal(normal_pressure_mean, normal_pressure_std_dev)
 
     new_data = {
         'Timestamp': last_timestamp,
-        'Flow': np.random.normal(10, 0.5),
+        'Flow': rng.normal(10, 0.5),
         'Pressure': pressure 
     }
 
@@ -105,9 +112,9 @@ def simulate_real_time_data(reductor_id, scaler, model):
 # Initialize a lock
 data_lock = threading.Lock()
 
-def update_data(reductor_id, scaler, model):
+def update_data(reductor_id):
     global data_df
-    new_data = simulate_real_time_data(reductor_id, scaler, model)
+    new_data = simulate_real_time_data(data_df)
         
     # Acquire lock before processing and updating data
     data_lock.acquire()
@@ -121,7 +128,7 @@ def update_data(reductor_id, scaler, model):
 
         # Process the updated data for prediction
         sensitivity = get_sensitivity_for_reductor(reductor_id)
-        update_cache(f'plot_data_{reductor_id}', (data_for_prediction, data_for_prediction['Timestamp'].min(), data_for_prediction['Timestamp'].max(), sensitivity))
+        update_cache(f'plot_data_{reductor_id}', (data_for_prediction, sensitivity))
 
         # Update the original data_df with new simulated data
         data_df = pd.concat([data_df, pd.DataFrame([new_data])], ignore_index=True)
@@ -162,13 +169,13 @@ def get_plot(reductor_id):
     if cached_data is None:
         return "No data available for plotting", 404
 
-    plot_data, start_date, end_date, sensitivity = cached_data
+    plot_data, sensitivity = cached_data
 
     # Assuming create_plotly_graph returns a Plotly figure
-    fig, anomaly_count  = create_plotly_graph_full(plot_data, sensitivity, scaler, model, reductor_id)
+    fig, anomaly_count  = create_plotly_graph_full(plot_data, sensitivity, scaler, model)
     if fig is not None:
-        graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-        return jsonify(graphJSON=graphJSON, anomaly_data=anomaly_count)
+        graph_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+        return jsonify(graphJSON=graph_json , anomaly_data=anomaly_count)
     else:
         return "No data available for plotting", 404
 
@@ -190,7 +197,7 @@ def get_data_from_db_for_reductor_date(start_date, end_date, reductor_id):
                 else:
                     return pd.DataFrame()  # Return an empty DataFrame if no data is found
     except Exception as err:  # Catching the database error
-        print("Error in SQL operation:", err)
+        print(SQL_ERROR_MESSAGE , err)
         return None  # Return None in case of an error
 
 def get_data_from_db_for_reductor(reductor_id):
@@ -210,9 +217,9 @@ def get_data_from_db_for_reductor(reductor_id):
                     return df
                 else:
                     return pd.DataFrame()  # Return an empty DataFrame if no data is found
-    except mysql.connector.Error as err:
-        print("Error in SQL operation:", err)
-        return None  # Return None to indicate an error
+    except Exception as err:  # Catching the database error
+        print(SQL_ERROR_MESSAGE , err)
+        return None  # Return None in case of an error
     
 def fetch_reductor_name_and_town_id(reductor_id):
     try:
@@ -233,7 +240,7 @@ def fetch_reductor_name_and_town_id(reductor_id):
                 else:
                     return None, None  # No data found
     except mysql.connector.Error as err:
-        print("Error in SQL operation:", err)
+        print(SQL_ERROR_MESSAGE , err)
         return None  # Return a single None to indicate an error
     
 def fetch_reductors():
@@ -243,7 +250,7 @@ def fetch_reductors():
                 cursor.execute("SELECT reductorID, name FROM reductor")
                 return cursor.fetchall()
     except mysql.connector.Error as err:
-        print("Database error:", err)
+        print(SQL_ERROR_MESSAGE , err)
         return []
        
 # Flask route handler for getting reductors
@@ -263,7 +270,7 @@ def get_sensitivity_for_reductor(reductor_id):
                 else:
                     return None  # Sensitivity not found for reductor
     except mysql.connector.Error as err:
-        print("Database error:", err)
+        print(SQL_ERROR_MESSAGE , err)
         return None
     
 def get_last_timestamp_from_db(reductor_id):
@@ -285,7 +292,7 @@ def get_last_timestamp_from_db(reductor_id):
                 else:
                     return None  # No data found
     except mysql.connector.Error as err:
-        print("Error in SQL operation:", err)
+        print(SQL_ERROR_MESSAGE , err)
         return None  # Return None to indicate an error
 
     
@@ -313,42 +320,64 @@ def send_alert_to_node_red(anomaly_data):
         return None  # Return None to indicate an error
 
 
-def create_plotly_graph_full(df, sensitivity, scaler, model, reductor_id):
-    global last_alert_timestamp, daily_anomaly_counts
+def preprocess_data(df):
     df.columns = ['Timestamp', 'Flow', 'Pressure']
-    # Ensure the 'Timestamp' column is in datetime format
     df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-
-    # Separate numeric columns for resampling
     numeric_cols = df[['Flow', 'Pressure']]
     numeric_cols.set_index(df['Timestamp'], inplace=True)
-    
-    # Resample the numeric columns
     df_resampled = numeric_cols.resample('5T').mean()
-
-    # Rejoin the Timestamp column
     df_resampled['Timestamp'] = df_resampled.index
-
-    if df_resampled.empty:
-        print("Resampled DataFrame is empty. Skipping processing.")
-        return None
-
     df_resampled.dropna(inplace=True)
-    if df_resampled.empty:
-        print("DataFrame is empty after dropping NaNs.")
-        return None
-    
-    # Scale the data
+    return df_resampled
+
+def scale_data(df_resampled, scaler, model):
     pressure_scaled = scaler.transform(df_resampled[['Pressure']])
     predictions = model.predict(pressure_scaled)
     mse = np.mean(np.power(pressure_scaled - predictions, 2), axis=1)
     df_resampled['Reconstruction_Error'] = mse
+    return df_resampled
 
+def detect_anomalies(df_resampled, sensitivity):
     mse_threshold = np.quantile(df_resampled['Reconstruction_Error'], sensitivity)
     df_resampled['Predicted_Anomalies'] = df_resampled['Reconstruction_Error'] > mse_threshold
+    return df_resampled
+
+def track_daily_anomalies(df_resampled):
+    daily_anomaly_data = {}
+    df_resampled['Date'] = df_resampled['Timestamp'].dt.date
+    for date, group in df_resampled.groupby('Date'):
+        daily_anomalies = group['Predicted_Anomalies'].sum()
+        daily_anomaly_counts[date] = daily_anomalies
+        if daily_anomalies > 10:
+            date_str = date.strftime('%Y-%m-%d')
+            daily_anomaly_data[date_str] = daily_anomalies
+    return daily_anomaly_data
+
+
+def create_plotly_figure(df_resampled):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df_resampled.index, y=df_resampled['Pressure'], mode='lines', name='Pressure'))
+
+    for severity, color in zip(['Mild', 'Moderate', 'Severe'], ['yellow', 'orange', 'red']):
+        anomalies = df_resampled[df_resampled['Anomaly_Severity'] == severity]
+        fig.add_trace(go.Scatter(x=anomalies.index, y=anomalies['Pressure'], mode='markers', name=f'{severity} Anomalies', marker_color=color))
+
+    fig.update_layout(title='Pressure Readings with Detected Anomalies', xaxis_title='Timestamp', yaxis_title='Scaled Pressure')
     
+    if not df_resampled.empty:
+        max_date = df_resampled.index.max()
+        one_day_ago = max_date - pd.Timedelta(days=1)
+        fig.update_layout(xaxis_range=[one_day_ago, max_date])
+    
+    return fig
+
+def create_plotly_graph_full(df, sensitivity, scaler, model):
     # Track daily anomalies
     daily_anomaly_data = {}
+    
+    df_resampled = preprocess_data(df)
+    df_resampled = scale_data(df_resampled, scaler, model)
+    df_resampled = detect_anomalies(df_resampled, sensitivity)
     
     # Update daily anomaly counts and record days with more than 10 anomalies
     df_resampled['Date'] = df_resampled['Timestamp'].dt.date
@@ -365,15 +394,11 @@ def create_plotly_graph_full(df, sensitivity, scaler, model, reductor_id):
     print("Daily anomalies:", daily_anomaly_counts[date])
     anomaly_count = daily_anomaly_counts[date]
     print("Number of anomalies:", df_resampled['Predicted_Anomalies'].sum())
-
-    # Define thresholds for severity levels
     severity_thresholds = {
         'mild': np.quantile(df_resampled[df_resampled['Predicted_Anomalies']]['Reconstruction_Error'], 0.75),
         'moderate': np.quantile(df_resampled[df_resampled['Predicted_Anomalies']]['Reconstruction_Error'], 0.90),
         'severe': np.quantile(df_resampled[df_resampled['Predicted_Anomalies']]['Reconstruction_Error'], 0.99)
     }
-
-    # Function to classify anomaly severity
     def classify_anomaly_severity(row):
         if row['Predicted_Anomalies']:
             if row['Reconstruction_Error'] <= severity_thresholds['mild']:
@@ -383,106 +408,73 @@ def create_plotly_graph_full(df, sensitivity, scaler, model, reductor_id):
             else:
                 return 'Severe'
         return 'Normal'
-
-    # Apply the classification
     df_resampled['Anomaly_Severity'] = df_resampled.apply(classify_anomaly_severity, axis=1)
-
-    # Function to get reductor name and town ID (assuming these are stored in your database)
-    def get_reductor_details(reductor_id):
-        reductor_name, town_id = fetch_reductor_name_and_town_id(reductor_id)
-        return reductor_name, town_id
-
-    # Fetch additional details
-    reductor_name, town_id = get_reductor_details(reductor_id)
-    # Check and send alerts for new anomalies
-    for index, row in df_resampled.iterrows():
-        if row['Predicted_Anomalies']:
-            anomaly_timestamp = row['Timestamp']
-            # Send an alert only if this anomaly is newer than the last alerted anomaly
-            if last_alert_timestamp is None or anomaly_timestamp > last_alert_timestamp:
-                # Prepare anomaly data
-                anomaly_data = {
-                    'timestamp': str(anomaly_timestamp),
-                    'pressure': row['Pressure'],
-                    'anomaly_severity': row['Anomaly_Severity'],
-                    'reductorID': reductor_id,
-                    'reductorName': reductor_name,
-                    'townID': town_id
-                }
-
-                # Send alert
-                send_alert_to_node_red(anomaly_data)
-
-                # Update the last alert timestamp
-                last_alert_timestamp = anomaly_timestamp
-
-
-    # Create a Plotly figure
-    fig = go.Figure()
-
-    # Plot the normal pressure readings
-    fig.add_trace(go.Scatter(x=df_resampled.index, y=df_resampled['Pressure'], mode='lines', name='Pressure'))
+    fig = create_plotly_figure(df_resampled)
     
-    # Update line color for days with more than 10 anomalies
-    for date, count in daily_anomaly_data.items():
-        if count > 10:
-            # Find all data points for the given date
-            day_data = df_resampled[df_resampled['Date'] == pd.to_datetime(date)]
-            fig.add_trace(go.Scatter(
-                x=day_data.index,
-                y=day_data['Pressure'],
-                mode='lines',
-                name=f'High Anomalies on {date} ({count})',
-                line=dict(color='red', width=3)  # Highlight with a red, thicker line
-            ))
+    return fig, anomaly_count
 
-    for severity, color in zip(['Mild', 'Moderate', 'Severe'], ['yellow', 'orange', 'red']):
-        anomalies = df_resampled[df_resampled['Anomaly_Severity'] == severity]
-        fig.add_trace(go.Scatter(x=anomalies.index, y=anomalies['Pressure'], mode='markers', name=f'{severity} Anomalies', marker_color=color))
 
-    fig.update_layout(title='Pressure Readings with Detected Anomalies', xaxis_title='Timestamp', yaxis_title='Scaled Pressure')
 
-    # Set initial x-axis range to show the last day's data
-    if not df_resampled.empty:
-        max_date = df_resampled.index.max()
-        one_day_ago = max_date - pd.Timedelta(days=1)
-        fig.update_layout(xaxis_range=[one_day_ago, max_date])
 
-    return fig, anomaly_count 
+current_simulation_reductor_id = None
 
-# Function to start data simulation for a reductor
 def start_simulation_for_reductor(reductor_id, scheduler):
     global data_df
-    global last_alert_timestamp
+    global last_timestamp
+    global current_simulation_reductor_id
+
+    # Stop the current simulation if it's for a different reductor
+    if current_simulation_reductor_id is not None and current_simulation_reductor_id != reductor_id:
+        scheduler.remove_job(f'update_data_job_{current_simulation_reductor_id}')
+        print(f"Stopped simulation for reductor {current_simulation_reductor_id}")
+
+    current_simulation_reductor_id = reductor_id
+
+    # Clear the data for the previous reductor
+    data_df = pd.DataFrame()
+    last_timestamp = None
+    
+    # Load historical data for the new reductor
     data_df = get_data_from_db_for_reductor(reductor_id)
     if not data_df.empty:
         print(f"Loaded historical data for reductor {reductor_id}")
-        last_alert_timestamp = get_last_timestamp_from_db(reductor_id)
-        print(f"Last timestamp: {last_alert_timestamp}")
+        last_timestamp = get_last_timestamp_from_db(reductor_id)
+        print(f"Last timestamp: {last_timestamp}")
+        
         try:
             scaler, model = load_reductor_assets(reductor_id)
         except FileNotFoundError:
             print(f"Scaler or model file not found for reductor {reductor_id}")
             return
-        create_plotly_graph_full(data_df, get_sensitivity_for_reductor(reductor_id), scaler, model, reductor_id)
-        # Cache the initial data
-        #update_cache(f'plot_data_{reductor_id}', (data_df, data_df['Timestamp'].min(), data_df['Timestamp'].max()))
 
-        # Schedule the update_data job
-        scheduler.add_job(update_data, 'interval', seconds=5, args=[reductor_id, scaler, model])
+        create_plotly_graph_full(data_df, get_sensitivity_for_reductor(reductor_id), scaler, model)
 
+        # Update the job in the scheduler for the new reductor
+        job_id = f'update_data_job_{reductor_id}'
+        if job_id not in [job.id for job in scheduler.get_jobs()]:
+            scheduler.add_job(update_data, 'interval', seconds=5, id=job_id, args=[reductor_id])
+            print(f"Started simulation for reductor {reductor_id}")
     else:
         print(f"No historical data found for reductor {reductor_id}")
+
+        
+@app.route('/node_red/start_simulation/<int:reductor_id>', methods=['POST'])
+def start_simulation_from_node_red(reductor_id):
+    try:
+        start_simulation_for_reductor(reductor_id, scheduler)
+        return jsonify({"status": "success", "message": f"Simulation started for reductor {reductor_id}"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
         
 if __name__ == '__main__':
 
 
-
-    # Start with reductor 6
-    start_simulation_for_reductor(3, scheduler)
-
-    # Start the scheduler
+    scheduler = BackgroundScheduler()
     scheduler.start()
+    # Start with reductor 6
+    #start_simulation_for_reductor(3, scheduler)
+
 
     # Run the Flask application
     app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)

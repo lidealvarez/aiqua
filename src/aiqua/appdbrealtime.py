@@ -92,7 +92,7 @@ def simulate_real_time_data(data_df):
     anomaly_pressure_std_dev = normal_pressure_std_dev * 2  # For example, twice the normal std deviation
 
     # Probability of an anomaly occurring
-    anomaly_probability = 0.10  # 10%
+    anomaly_probability = 0.90  # 10%
 
     # Determine if this data point is an anomaly
     if rng.random() < anomaly_probability:
@@ -371,7 +371,40 @@ def create_plotly_figure(df_resampled):
     
     return fig
 
+# Function to get reductor name and town ID (assuming these are stored in your database)
+def get_reductor_details(reductor_id):
+    reductor_name, town_id = fetch_reductor_name_and_town_id(reductor_id)
+    return reductor_name, town_id
+    
+def check_and_send_alerts(df_resampled, reductor_id):
+    global last_alert_timestamp
+    # Fetch additional details
+    reductor_name, town_id = get_reductor_details(reductor_id)
+    # Check and send alerts for new anomalies
+    for index, row in df_resampled.iterrows():
+        if row['Predicted_Anomalies']:
+            anomaly_timestamp = row['Timestamp']
+            # Send an alert only if this anomaly is newer than the last alerted anomaly
+            if last_alert_timestamp is None or anomaly_timestamp > last_alert_timestamp:
+                # Prepare anomaly data
+                anomaly_data = {
+                    'timestamp': str(anomaly_timestamp),
+                    'pressure': row['Pressure'],
+                    'anomaly_severity': row['Anomaly_Severity'],
+                    'reductorID': reductor_id,
+                    'reductorName': reductor_name,
+                    'townID': town_id
+                }
+
+                # Send alert
+                send_alert_to_node_red(anomaly_data)
+
+                # Update the last alert timestamp
+                last_alert_timestamp = anomaly_timestamp
+    return last_alert_timestamp
+
 def create_plotly_graph_full(df, sensitivity, scaler, model):
+    global last_alert_timestamp
     # Track daily anomalies
     daily_anomaly_data = {}
     
@@ -390,6 +423,7 @@ def create_plotly_graph_full(df, sensitivity, scaler, model):
             # Convert date to string
             date_str = date.strftime('%Y-%m-%d')
             daily_anomaly_data[date_str] = daily_anomalies
+        # Check and send alerts
 
     print("Daily anomalies:", daily_anomaly_counts[date])
     anomaly_count = daily_anomaly_counts[date]
@@ -409,6 +443,7 @@ def create_plotly_graph_full(df, sensitivity, scaler, model):
                 return 'Severe'
         return 'Normal'
     df_resampled['Anomaly_Severity'] = df_resampled.apply(classify_anomaly_severity, axis=1)
+    last_alert_timestamp = check_and_send_alerts(df_resampled, current_simulation_reductor_id)
     fig = create_plotly_figure(df_resampled)
     
     return fig, anomaly_count
@@ -420,7 +455,7 @@ current_simulation_reductor_id = None
 
 def start_simulation_for_reductor(reductor_id, scheduler):
     global data_df
-    global last_timestamp
+    global last_alert_timestamp
     global current_simulation_reductor_id
 
     # Stop the current simulation if it's for a different reductor
@@ -432,14 +467,14 @@ def start_simulation_for_reductor(reductor_id, scheduler):
 
     # Clear the data for the previous reductor
     data_df = pd.DataFrame()
-    last_timestamp = None
+    last_alert_timestamp = None
     
     # Load historical data for the new reductor
     data_df = get_data_from_db_for_reductor(reductor_id)
     if not data_df.empty:
         print(f"Loaded historical data for reductor {reductor_id}")
-        last_timestamp = get_last_timestamp_from_db(reductor_id)
-        print(f"Last timestamp: {last_timestamp}")
+        last_alert_timestamp = get_last_timestamp_from_db(reductor_id)
+        print(f"Last alert timestamp: {last_alert_timestamp}")
         
         try:
             scaler, model = load_reductor_assets(reductor_id)
@@ -473,7 +508,7 @@ if __name__ == '__main__':
     scheduler = BackgroundScheduler()
     scheduler.start()
     # Start with reductor 6
-    #start_simulation_for_reductor(3, scheduler)
+    start_simulation_for_reductor(6, scheduler)
 
 
     # Run the Flask application

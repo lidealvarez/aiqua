@@ -765,14 +765,24 @@ class TestScaleData(unittest.TestCase):
         # Apply scaling
         scaled_df = appdbrealtime.scale_data(self.df_resampled, self.scaler, self.model)
 
-        # Obtain the scaled 'Pressure' values
-        pressure_scaled = self.scaler.transform(self.df_resampled[['Pressure']])
+        # Obtain the scaled 'Pressure' values directly
+        pressure_scaled_direct = self.scaler.transform(self.df_resampled[['Pressure']])
 
-        # Test if the mean of the scaled 'Pressure' is close to 0
-        self.assertAlmostEqual(pressure_scaled.mean(), 0.0, places=7)
+        # Generate predictions using the model and directly scaled data
+        predictions_direct = self.model.predict(pressure_scaled_direct)
 
-        # Test if the standard deviation of the scaled 'Pressure' is close to 1
-        self.assertAlmostEqual(pressure_scaled.std(), 1.0, places=7)
+        # Calculate reconstruction error for directly scaled data
+        mse_direct = np.mean(np.power(pressure_scaled_direct - predictions_direct, 2), axis=1)
+
+        # Extract reconstruction error from scaled_df
+        mse_from_scaled_df = scaled_df['Reconstruction_Error'].values
+
+        # Test if the 'Reconstruction_Error' column exists in scaled_df
+        self.assertIn('Reconstruction_Error', scaled_df.columns)
+
+        # Compare the reconstruction errors
+        np.testing.assert_array_almost_equal(mse_direct, mse_from_scaled_df, decimal=7)
+
 
 
     def test_model_predictions(self):

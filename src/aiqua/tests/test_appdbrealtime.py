@@ -974,12 +974,13 @@ class TestCreatePlotlyGraphFull(unittest.TestCase):
     @patch('appdbrealtime.check_and_send_alerts')
     @patch('appdbrealtime.create_plotly_figure')
     def test_create_plotly_graph_full(self, mock_create_figure, mock_check_alerts, mock_detect_anomalies, mock_scale_data, mock_preprocess_data):
+        rng = np.random.default_rng(42)
         # Setup DataFrame and mock return values
         mock_df = pd.DataFrame({
             'Timestamp': pd.date_range(start='2021-01-01', periods=5, freq='5T'),
-            'Pressure': np.random.rand(5),
+            'Pressure': rng.random(5),
             'Predicted_Anomalies': [False, True, False, True, False],
-            'Reconstruction_Error': np.random.rand(5)
+            'Reconstruction_Error': rng.random(5)
         })
         mock_preprocess_data.return_value = mock_df
         mock_scale_data.return_value = mock_df

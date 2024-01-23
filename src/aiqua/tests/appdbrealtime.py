@@ -27,7 +27,6 @@ app.secret_key = '6c061b2509dbc420431ad96a31042f4d'
 global data_df
 data_df = pd.DataFrame()
 
-# Define a constant for the error message
 SQL_ERROR_MESSAGE = "Error in SQL operation:"
 
 # Database configuration
@@ -48,7 +47,6 @@ def update_cache(key, value):
 def get_from_cache(key):
     return cache.get(key)
 
-# Initialize the BackgroundScheduler
 scheduler = BackgroundScheduler()
 
 last_timestamp = None
@@ -72,7 +70,7 @@ def simulate_real_time_data(data_df):
             last_timestamp = data_df['Timestamp'].iloc[-1]
         else:
             # Set initial timestamp if data_df is empty
-            last_timestamp = pd.Timestamp.now().floor('5T')  # Round down to nearest 5 minutes
+            last_timestamp = pd.Timestamp.now().floor('5T')
 
     # Increment timestamp by 5 minutes
     last_timestamp += pd.Timedelta(minutes=5)
@@ -88,11 +86,11 @@ def simulate_real_time_data(data_df):
         normal_pressure_std_dev = 0.2
 
     # Define anomaly parameters for 'Pressure'
-    anomaly_pressure_mean = normal_pressure_mean * 2  # For example, twice the normal mean
-    anomaly_pressure_std_dev = normal_pressure_std_dev * 2  # For example, twice the normal std deviation
+    anomaly_pressure_mean = normal_pressure_mean * 2  
+    anomaly_pressure_std_dev = normal_pressure_std_dev * 2  
 
     # Probability of an anomaly occurring
-    anomaly_probability = 0.90  # 10%
+    anomaly_probability = 0.90 
 
     # Determine if this data point is an anomaly
     if rng.random() < anomaly_probability:
@@ -109,7 +107,6 @@ def simulate_real_time_data(data_df):
     return new_data
 
 
-# Initialize a lock
 data_lock = threading.Lock()
 
 def update_data(reductor_id):
@@ -126,7 +123,6 @@ def update_data(reductor_id):
         # Add new simulated data to the copy for prediction
         data_for_prediction = pd.concat([data_for_prediction, pd.DataFrame([new_data])], ignore_index=True)
 
-        # Process the updated data for prediction
         sensitivity = get_sensitivity_for_reductor(reductor_id)
         update_cache(f'plot_data_{reductor_id}', (data_for_prediction, sensitivity))
 
@@ -141,11 +137,11 @@ def update_data(reductor_id):
 
 # Function to load scaler and model for a specific reductor
 def load_reductor_assets(reductor_id):
-    # Load the scaler
+
     scaler_filename = f'scaler_reductor{reductor_id}.save'
     scaler = joblib.load(scaler_filename)
 
-    # Load the model
+
     model_filename = f'model_reductor{reductor_id}.h5'
     model = load_model(model_filename)
 
@@ -157,13 +153,13 @@ def show_plot(reductor_id):
 
 @app.route('/get_plot/<int:reductor_id>')
 def get_plot(reductor_id):
-    # Load assets for the specified reductor
+
     try:
         scaler, model = load_reductor_assets(reductor_id)
     except FileNotFoundError:
         return "Scaler or model file not found for the specified reductor", 404
 
-    # Retrieve data from cache
+
     cached_data = get_from_cache(f'plot_data_{reductor_id}')
     
     if cached_data is None:
@@ -171,7 +167,7 @@ def get_plot(reductor_id):
 
     plot_data, sensitivity = cached_data
 
-    # Assuming create_plotly_graph returns a Plotly figure
+
     fig, anomaly_count  = create_plotly_graph_full(plot_data, sensitivity, scaler, model)
     if fig is not None:
         graph_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
@@ -195,16 +191,16 @@ def get_data_from_db_for_reductor_date(start_date, end_date, reductor_id):
                     df2 = pd.DataFrame(rows)
                     return df2
                 else:
-                    return pd.DataFrame()  # Return an empty DataFrame if no data is found
-    except Exception as err:  # Catching the database error
+                    return pd.DataFrame()  
+    except Exception as err:  
         print(SQL_ERROR_MESSAGE , err)
-        return None  # Return None in case of an error
+        return None 
 
 def get_data_from_db_for_reductor(reductor_id):
     try:
         with mysql.connector.connect(**db_config) as conn:
             with conn.cursor(dictionary=True) as cursor:
-                # Updated query to fetch all data for a specific reductor
+
                 query = """
                 SELECT timestamp, flow, pressure
                 FROM data
@@ -216,17 +212,15 @@ def get_data_from_db_for_reductor(reductor_id):
                     df = pd.DataFrame(rows)
                     return df
                 else:
-                    return pd.DataFrame()  # Return an empty DataFrame if no data is found
-    except Exception as err:  # Catching the database error
+                    return pd.DataFrame()  
+    except Exception as err:  
         print(SQL_ERROR_MESSAGE , err)
-        return None  # Return None in case of an error
+        return None 
     
 def fetch_reductor_name_and_town_id(reductor_id):
     try:
         with mysql.connector.connect(**db_config) as conn:
             with conn.cursor() as cursor:
-                # Replace 'reductor_table' with your actual table name
-                # and 'name', 'townID' with your actual column names
                 query = """
                 SELECT name, townID
                 FROM reductor
@@ -238,10 +232,10 @@ def fetch_reductor_name_and_town_id(reductor_id):
                     reductor_name, town_id = row
                     return reductor_name, town_id
                 else:
-                    return None, None  # No data found
+                    return None, None  
     except mysql.connector.Error as err:
         print(SQL_ERROR_MESSAGE , err)
-        return None  # Return a single None to indicate an error
+        return None  
     
 def fetch_reductors():
     try:
@@ -253,7 +247,6 @@ def fetch_reductors():
         print(SQL_ERROR_MESSAGE , err)
         return []
        
-# Flask route handler for getting reductors
 @app.route('/get_reductors', methods=['GET'])
 def get_reductors():
     reductors = fetch_reductors()
@@ -268,7 +261,7 @@ def get_sensitivity_for_reductor(reductor_id):
                 if row and row[0] is not None:
                     return row[0]
                 else:
-                    return None  # Sensitivity not found for reductor
+                    return None  
     except mysql.connector.Error as err:
         print(SQL_ERROR_MESSAGE , err)
         return None
@@ -277,7 +270,6 @@ def get_last_timestamp_from_db(reductor_id):
     try:
         with mysql.connector.connect(**db_config) as conn:
             with conn.cursor() as cursor:
-                # Assuming the table name is 'data' and the timestamp column is 'timestamp'
                 query = """
                 SELECT timestamp
                 FROM data
@@ -288,12 +280,12 @@ def get_last_timestamp_from_db(reductor_id):
                 cursor.execute(query, (reductor_id,))
                 row = cursor.fetchone()
                 if row:
-                    return row[0]  # Return the timestamp
+                    return row[0]  
                 else:
-                    return None  # No data found
+                    return None 
     except mysql.connector.Error as err:
         print(SQL_ERROR_MESSAGE , err)
-        return None  # Return None to indicate an error
+        return None  
 
     
 def send_alert_to_node_red(anomaly_data):
@@ -302,9 +294,8 @@ def send_alert_to_node_red(anomaly_data):
     
     try:
         response = requests.post(url, json=anomaly_data, headers=headers)
-        response.raise_for_status()  # Raise an exception for 4xx and 5xx status codes
+        response.raise_for_status()  
         
-        # Debug: Print a message after sending the alert
         print("Alert sent to Node-RED.")
         
         if response.status_code == 200:
@@ -312,12 +303,11 @@ def send_alert_to_node_red(anomaly_data):
         else:
             print("Failed to send alert")
 
-        return response  # Return the response object
+        return response  
         
     except requests.exceptions.RequestException as e:
-        # Handle any exceptions that may occur during the request
         print("Error sending alert:", str(e))
-        return None  # Return None to indicate an error
+        return None  
 
 
 def preprocess_data(df):
@@ -371,14 +361,13 @@ def create_plotly_figure(df_resampled):
     
     return fig
 
-# Function to get reductor name and town ID (assuming these are stored in your database)
+# Function to get reductor name and town ID
 def get_reductor_details(reductor_id):
     reductor_name, town_id = fetch_reductor_name_and_town_id(reductor_id)
     return reductor_name, town_id
     
 def check_and_send_alerts(df_resampled, reductor_id):
     global last_alert_timestamp
-    # Fetch additional details
     reductor_name, town_id = get_reductor_details(reductor_id)
     # Check and send alerts for new anomalies
     for index, row in df_resampled.iterrows():
@@ -396,16 +385,13 @@ def check_and_send_alerts(df_resampled, reductor_id):
                     'townID': town_id
                 }
 
-                # Send alert
                 send_alert_to_node_red(anomaly_data)
 
-                # Update the last alert timestamp
                 last_alert_timestamp = anomaly_timestamp
     return last_alert_timestamp
 
 def create_plotly_graph_full(df, sensitivity, scaler, model):
     global last_alert_timestamp
-    # Track daily anomalies
     daily_anomaly_data = {}
     
     df_resampled = preprocess_data(df)
@@ -416,14 +402,11 @@ def create_plotly_graph_full(df, sensitivity, scaler, model):
     df_resampled['Date'] = df_resampled['Timestamp'].dt.date
     for date, group in df_resampled.groupby('Date'):
         daily_anomalies = group['Predicted_Anomalies'].sum()
-        # Convert numpy.int64 to Python int
         daily_anomalies = int(daily_anomalies)
         daily_anomaly_counts[date] = daily_anomalies
         if daily_anomalies > 10:
-            # Convert date to string
             date_str = date.strftime('%Y-%m-%d')
             daily_anomaly_data[date_str] = daily_anomalies
-        # Check and send alerts
 
     print("Daily anomalies:", daily_anomaly_counts[date])
     anomaly_count = daily_anomaly_counts[date]
@@ -457,6 +440,8 @@ def start_simulation_for_reductor(reductor_id, scheduler):
     global data_df
     global last_alert_timestamp
     global current_simulation_reductor_id
+    global last_timestamp
+    
 
     # Stop the current simulation if it's for a different reductor
     if current_simulation_reductor_id is not None and current_simulation_reductor_id != reductor_id:
@@ -468,7 +453,7 @@ def start_simulation_for_reductor(reductor_id, scheduler):
     # Clear the data for the previous reductor
     data_df = pd.DataFrame()
     last_alert_timestamp = None
-    
+    last_timestamp = None
     # Load historical data for the new reductor
     data_df = get_data_from_db_for_reductor(reductor_id)
     if not data_df.empty:
@@ -511,7 +496,6 @@ if __name__ == '__main__':
     start_simulation_for_reductor(6, scheduler)
 
 
-    # Run the Flask application
     app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
 
 

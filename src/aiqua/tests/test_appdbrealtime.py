@@ -14,6 +14,7 @@ from sklearn.preprocessing import StandardScaler
 
 CACHE_KEY = 'appdbrealtime.cache'
 DB_ERROR_MESSAGE = "Database error"
+TEST_ERROR_MESSAGE = "Test error"
 
 class TestCacheFunctions(unittest.TestCase):
     
@@ -588,7 +589,37 @@ class TestStartSimulationForReductor(unittest.TestCase):
         mock_get_data_from_db.assert_called_with(1)
         mock_load_reductor_assets.assert_called_with(1)
 
+    @patch('appdbrealtime.get_data_from_db_for_reductor')
+    @patch('appdbrealtime.get_last_timestamp_from_db')
+    @patch('appdbrealtime.load_reductor_assets')
+    @patch('appdbrealtime.create_plotly_graph_full')
+    @patch('appdbrealtime.scheduler.add_job')
+    @patch('appdbrealtime.scheduler.remove_job')
+    def test_stop_existing_simulation_for_different_reductor(self, mock_remove_job, mock_add_job, mock_create_plotly_graph, mock_load_reductor_assets, mock_get_last_timestamp, mock_get_data_from_db):
+        # Mocking successful data retrieval and asset loading
+        mock_get_data_from_db.return_value = MagicMock(empty=False)
+        mock_get_last_timestamp.return_value = '2023-01-01 00:00:00'
+        mock_load_reductor_assets.return_value = (MagicMock(), MagicMock())
 
+        # Create a mock scheduler
+        mock_scheduler = MagicMock()
+        mock_scheduler.add_job = mock_add_job
+        mock_scheduler.remove_job = mock_remove_job
+
+        # Set a different reductor as the current simulation
+        appdbrealtime.current_simulation_reductor_id = 2
+
+        # Test the function with a new reductor
+        start_simulation_for_reductor(1, mock_scheduler)
+
+        # Assertions
+        mock_remove_job.assert_called_with('update_data_job_2')
+        mock_get_data_from_db.assert_called_with(1)
+        mock_get_last_timestamp.assert_called_with(1)
+        mock_load_reductor_assets.assert_called_with(1)
+        mock_create_plotly_graph.assert_called()
+        mock_add_job.assert_called()
+        
 class FlaskNodeRedTestCase(unittest.TestCase):
     def setUp(self):
         self.app = app
@@ -611,7 +642,7 @@ class FlaskNodeRedTestCase(unittest.TestCase):
     @patch('appdbrealtime.start_simulation_for_reductor')
     def test_start_simulation_failure(self, mock_start_simulation):
         # Mock start_simulation_for_reductor to raise an exception
-        mock_start_simulation.side_effect = Exception('Test error')
+        mock_start_simulation.side_effect = Exception(TEST_ERROR_MESSAGE)
 
         # Make a POST request to the route and test for error response
         reductor_id = 1  # Example reductor ID
@@ -619,7 +650,7 @@ class FlaskNodeRedTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)  # assuming your route still returns HTTP 200 even in case of internal errors
         data = json.loads(response.get_data(as_text=True))
         self.assertEqual(data['status'], 'error')
-        self.assertIn('Test error', data['message'])
+        self.assertIn(TEST_ERROR_MESSAGE, data['message'])
 
                    
 class TestAppDbRealTime(unittest.TestCase):
@@ -959,6 +990,7 @@ class TestCreatePlotlyGraphFull(unittest.TestCase):
         mock_create_figure.assert_called_once_with(mock_df)
         self.assertEqual(anomaly_count, 2)
         self.assertEqual(fig, mock_figure)
-                                                
+
+                        
 if __name__ == '__main__':
     unittest.main()

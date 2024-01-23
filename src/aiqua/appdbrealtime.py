@@ -8,11 +8,6 @@ import numpy as np
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import StandardScaler
 import plotly.graph_objs as go
-import plotly.offline as pyo
-from plotly.subplots import make_subplots
-import os
-import uuid
-import random
 from apscheduler.schedulers.background import BackgroundScheduler
 import json
 import plotly

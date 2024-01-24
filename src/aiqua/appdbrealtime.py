@@ -90,7 +90,7 @@ def simulate_real_time_data(data_df):
     anomaly_pressure_std_dev = normal_pressure_std_dev * 2  
 
     # Probability of an anomaly occurring
-    anomaly_probability = 0.90 
+    anomaly_probability = 0.10 
 
     # Determine if this data point is an anomaly
     if rng.random() < anomaly_probability:

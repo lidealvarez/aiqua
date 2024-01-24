@@ -1,2 +1,0 @@
-docker build -t flask-anoeta-app .
-docker run -p 5000:5000 flask-anoeta-app

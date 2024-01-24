@@ -2,7 +2,7 @@ import datetime
 from numpy.random import Generator, MT19937
 import joblib
 import mysql.connector
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for
+from flask import Flask, request, jsonify, render_template, session
 import pandas as pd
 import numpy as np
 from tensorflow.keras.models import load_model
@@ -493,7 +493,7 @@ if __name__ == '__main__':
     scheduler = BackgroundScheduler()
     scheduler.start()
     # Start with reductor 6
-    start_simulation_for_reductor(6, scheduler)
+    start_simulation_for_reductor(5, scheduler)
 
 
     app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
